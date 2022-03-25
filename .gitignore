@@ -1,2 +1,9 @@
 /target
 Cargo.lock
+
+# IntelliJ
+*.iml
+.idea/*
+*.log
+docs/.DS_Store
+.DS_Store
