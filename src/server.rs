@@ -74,6 +74,33 @@ impl QueryResultsHandler {
     }
 }
 
+/// KVSnapshot - TODO - Future Work implement this in the whole system
+#[derive(Clone, Debug)]
+pub struct KVSnapshot {
+    pub snapshotted: HashMap<u64, String>,
+}
+
+impl Snapshot<StoreCommand> for KVSnapshot {
+    fn create(entries: &[StoreCommand]) -> Self {
+        let mut snapshotted = HashMap::new();
+        for e in entries {
+            let StoreCommand { id, sql } = e;
+            snapshotted.insert(id.clone(), sql.clone());
+        }
+        Self { snapshotted }
+    }
+
+    fn merge(&mut self, delta: Self) {
+        for (k, v) in delta.snapshotted {
+            self.snapshotted.insert(k, v);
+        }
+    }
+
+    fn use_snapshots() -> bool {
+        true
+    }
+}
+
 
 /// Store configuration.
 #[derive(Debug)]
