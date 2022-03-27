@@ -77,7 +77,7 @@ impl QueryResultsHandler {
 /// KVSnapshot - TODO - Future Work implement this in the whole system
 #[derive(Clone, Debug)]
 pub struct KVSnapshot {
-    pub snapshotted: HashMap<u64, String>,
+    pub snapshotted: HashMap<usize, String>,
 }
 
 impl Snapshot<StoreCommand> for KVSnapshot {
