@@ -2,14 +2,14 @@
 use crate::errors::StoreError;
 use async_notify::Notify;
 use async_trait::async_trait;
-use crossbeam_channel as channel;
-use crossbeam_channel::{Receiver, Sender};
+// use crossbeam_channel as channel;
+// use crossbeam_channel::{Receiver, Sender};
 use derivative::Derivative;
 use sqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::sleep;
+// use std::thread::sleep;
 use std::time::Duration;
 // importing omni paxos core
 use omnipaxos_core::messages::Message;
@@ -276,10 +276,6 @@ pub struct StoreServer<T: StoreTransport + Send + Sync> {
     sp: Arc<Mutex<SequencePaxos<StoreCommand, (), Store<()>>>>,
     #[derivative(Debug = "ignore")]
     ble: Arc<Mutex<BallotLeaderElection>>,
-    sp_notifier_rx: Receiver<Message<StoreCommand, ()>>,
-    sp_notifier_tx: Sender<Message<StoreCommand, ()>>,
-    ble_notifier_rx: Receiver<BLEMessage>,
-    ble_notifier_tx: Sender<BLEMessage>,
     transport: T,
 }
 
@@ -305,10 +301,10 @@ pub struct QueryResults {
 
 impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     /// Start a new server as part of a ChiselStore cluster.
-    pub fn start(id: usize, peers: Vec<usize>, transport: T) -> Result<Self, StoreError> {
+    pub fn start(id: u64, peers: Vec<u64>, transport: T) -> Result<Self, StoreError> {
 
-        let id = id as u64;
-        let peers: Vec<u64> = peers.into_iter().map(|p| p as u64).collect();
+        // let id = id as u64;
+        // let peers: Vec<u64> = peers.into_iter().map(|p| p as u64).collect();
         let command_id = AtomicU64::new(0);
 
         // sequence paxos
@@ -330,12 +326,8 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
         let mut ble_config = BLEConfig::default();
         ble_config.set_pid(id);
         ble_config.set_peers(peers);
-        ble_config.set_hb_delay(10); // from omni paxos documentation, configure it yourself
+        ble_config.set_hb_delay(20); // from omni paxos documentation, configure it yourself
         let ble = Arc::new(Mutex::new(BallotLeaderElection::with(ble_config)));
-
-        // transport
-        let (sp_notifier_tx, sp_notifier_rx) = channel::unbounded();
-        let (ble_notifier_tx, ble_notifier_rx) = channel::unbounded();
 
         Ok(StoreServer {
             id,
@@ -343,38 +335,17 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
             query_results,
             sp,
             ble,
-            sp_notifier_rx,
-            sp_notifier_tx,
-            ble_notifier_rx,
-            ble_notifier_tx,
             transport,
         })
     }
 
     /// Run the blocking event loop.
-    pub fn run(&self) {
+    pub async fn run(&self) {
         loop {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+
             let mut sp = self.sp.lock().unwrap();
             let mut ble = self.ble.lock().unwrap();
-
-            if let Some(leader) = ble.tick() {
-                sp.handle_leader(leader);
-            }
-
-            // handle incoming messages
-            match self.sp_notifier_rx.try_recv() {
-                Ok(msg) => {
-                    sp.handle(msg);
-                },
-                _ => {}
-            };
-
-            match self.ble_notifier_rx.try_recv() {
-                Ok(msg) => {
-                    ble.handle(msg);
-                },
-                _ => {}
-            };
 
             // handle outgoing messages
             for msg in sp.get_outgoing_msgs() {
@@ -387,8 +358,26 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
                 self.transport.send_ble(receiver,msg);
             }
 
-            sleep(Duration::from_millis(1));
         }
+    }
+
+
+    pub async fn run_ble(&self) {
+        loop {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+
+            let mut sp = self.sp.lock().unwrap();
+            let mut ble = self.ble.lock().unwrap();
+
+            if let Some(leader) = ble.tick() {
+                sp.handle_leader(leader);
+            }
+        }
+    }
+
+    pub fn is_leader(&self) -> bool {
+        let seq_paxos = self.sp.lock().unwrap();
+        seq_paxos.get_current_leader() == (self.id as u64)
     }
 
     pub async fn query<S: AsRef<str>>(&self, sql_statement: S) -> Result<QueryResults, StoreError> {
@@ -418,11 +407,11 @@ impl<T: StoreTransport + Send + Sync> StoreServer<T> {
     
     /// Receive a sequence paxos message from the cluster.
     pub fn handle_sp_msg(&self, msg: Message<StoreCommand, ()>) {
-        self.sp_notifier_tx.send(msg).unwrap();
+        self.sp.lock().unwrap().handle(msg);
     }
 
     /// Receive a ballot leader election message from the cluster.
     pub fn handle_ble_msg(&self, msg: BLEMessage) {
-        self.ble_notifier_tx.send(msg).unwrap();
+        self.ble.lock().unwrap().handle(msg);
     }
 }

@@ -20,14 +20,14 @@ struct Opt {
 }
 
 /// Node authority (host and port) in the cluster.
-fn node_authority(id: usize) -> (&'static str, u16) {
+fn node_authority(id: u64) -> (&'static str, u16) {
     let host = "127.0.0.1";
     let port = 50000 + (id as u16);
     (host, port)
 }
 
 /// Node RPC address in cluster.
-fn node_rpc_addr(id: usize) -> String {
+fn node_rpc_addr(id: u64) -> String {
     let (host, port) = node_authority(id);
     format!("http://{}:{}", host, port)
 }
@@ -35,16 +35,29 @@ fn node_rpc_addr(id: usize) -> String {
 #[tokio::main]
 async fn main() -> Result<()> {
     let opt = Opt::from_args();
-    let (host, port) = node_authority(opt.id);
+
+    let id = opt.id as u64;
+    let peers: Vec<u64> = opt.peers.into_iter().map(|x| x as u64).collect();
+
+    let (host, port) = node_authority(id);
     let rpc_listen_addr = format!("{}:{}", host, port).parse().unwrap();
     let transport = RpcTransport::new(Box::new(node_rpc_addr));
-    let server = StoreServer::start(opt.id, opt.peers, transport)?;
+    let server = StoreServer::start(id, peers, transport)?;
     let server = Arc::new(server);
-    let f = {
+    let f_sp = {
         let server = server.clone();
-        tokio::task::spawn_blocking(move || {
-            server.run();
-        })
+        let s_p = tokio::task::spawn(async move {
+            server.run().await;
+        });
+        s_p
+    };
+
+    let f_ble = {
+        let server = server.clone();
+        let b_l_e = tokio::task::spawn(async move {
+            server.run_ble().await;
+        });
+        b_l_e
     };
     let rpc = RpcService::new(server);
     let g = tokio::task::spawn(async move {
@@ -55,7 +68,7 @@ async fn main() -> Result<()> {
             .await;
         ret
     });
-    let results = tokio::try_join!(f, g)?;
-    results.1?;
+    let results = tokio::try_join!(f_sp, f_ble, g)?;
+    results.2?;
     Ok(())
 }

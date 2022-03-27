@@ -33,7 +33,7 @@ pub mod proto {
 
 use proto::rpc_client::RpcClient;
 use crate::rpc::proto::*; // messages
-type NodeAddrFn = dyn Fn(usize) -> String + Send + Sync;
+type NodeAddrFn = dyn Fn(u64) -> String + Send + Sync;
 
 #[derive(Debug)]
 struct ConnectionPool {
@@ -117,7 +117,7 @@ impl StoreTransport for RpcTransport {
     fn send_seqpaxos(&self, to_id: u64, msg: Message<StoreCommand, ()>) {
         // received message here need to change this to the proto definition
         let message = sp_message_to_proto_definition(msg.clone());
-        let peer = (self.node_addr)(to_id as usize);
+        let peer = (self.node_addr)(to_id as u64);
         let pool = self.connections.clone();
 
         tokio::task::spawn(async move {
@@ -129,7 +129,7 @@ impl StoreTransport for RpcTransport {
 
     fn send_ble(&self, to_id: u64, msg: BLEMessage) {
         let message = ble_message_to_proto_definition(msg.clone());
-        let peer = (self.node_addr)(to_id as usize);
+        let peer = (self.node_addr)(to_id as u64);
         let pool = self.connections.clone();
         tokio::task::spawn(async move {
             let mut client = pool.connection(peer).await;
@@ -229,6 +229,7 @@ fn ble_message_to_proto_definition(message: BLEMessage) -> BleMessageObject {
     }
 }
 
+// ALL CONVERSIONS FROM OMNI PAXOS TO PROTO MESSAGES
 //PREPARE
 fn ballot_proto(ballot: Ballot) -> BallotObject {
     BallotObject {
